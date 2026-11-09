@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.0.1 - 2026-11-09
+
+- Fixed: Excel had to repair the `.xlsx` and removed the `=====` divider lines
+  from the Run info sheet. Text starting with `=` is now always stored as text,
+  never as a formula.
+- Self-test checks that the workbook contains no formulas.
+
 ## 1.0.0 - 2026-11-09
 
 First release.

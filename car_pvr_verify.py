@@ -36,7 +36,7 @@ import tempfile
 import unicodedata
 from collections import Counter, defaultdict
 
-__version__ = "1.0.0"
+__version__ = "1.0.1"
 TOOL = "car_pvr_verify.py"
 
 # ---------------------------------------------------------------------------
@@ -887,6 +887,18 @@ def _num(v):
     return v
 
 
+def _xlsx_value(ws, v, WriteOnlyCell):
+    """Cell value for the workbook. Text is always stored as text: openpyxl would
+    otherwise turn anything starting with '=' (such as the ===== dividers in Run
+    info, or an odd file name) into a formula, which Excel then strips out."""
+    v = _num(v)
+    if isinstance(v, str) and v.startswith("="):
+        cell = WriteOnlyCell(ws, value=v)
+        cell.data_type = "s"
+        return cell
+    return v
+
+
 def write_xlsx(folder, base):
     try:
         import openpyxl
@@ -916,11 +928,11 @@ def write_xlsx(folder, base):
                 if n >= limit:
                     ws.append(["(more rows in {0})".format(fname)])
                     break
-                ws.append([_num(v) for v in row])
+                ws.append([_xlsx_value(ws, v, WriteOnlyCell) for v in row])
     ws = wb.create_sheet("Run info")
     with open(os.path.join(folder, "run_info.txt"), encoding="utf-8") as f:
         for line in f:
-            ws.append([line.rstrip("\n")])
+            ws.append([_xlsx_value(ws, line.rstrip("\n"), WriteOnlyCell)])
     wb.save(path)
     return None
 
@@ -1507,7 +1519,19 @@ def selftest():
               and any(r["object_identifier"] == "cabc_00002" for r in summ))
         try:
             import openpyxl  # noqa: F401
-            check(".xlsx written", any(n.endswith(".xlsx") for n in os.listdir(rep)))
+            xl = [n for n in os.listdir(rep) if n.endswith(".xlsx")]
+            check(".xlsx written", xl)
+            if xl:
+                import zipfile
+                with zipfile.ZipFile(os.path.join(rep, xl[0])) as z:
+                    sheets = [z.read(n).decode("utf-8") for n in z.namelist() if n.startswith("xl/worksheets/")]
+                check(".xlsx has no formulas (Excel opens it without repairs)",
+                      sheets and not any("<f>" in x for x in sheets))
+                with zipfile.ZipFile(os.path.join(rep, xl[0])) as z:
+                    names = z.namelist()
+                    ri = [z.read(n).decode("utf-8") for n in names if n.startswith("xl/worksheets/")][-1]
+                    shared = z.read("xl/sharedStrings.xml").decode("utf-8") if "xl/sharedStrings.xml" in names else ""
+                check(".xlsx keeps the ===== divider lines as text", "=====" in ri or "=====" in shared)
         except ImportError:
             check(".xlsx skipped cleanly without openpyxl", "openpyxl is not installed" in text)
         code, rep, _ = go(["interim", "--source", S1, "--source", src2, "--dest", D])
